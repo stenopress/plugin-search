@@ -98,10 +98,14 @@ export default function searchPlugin(
     },
 
     afterPage(page: GeneratedPage): void {
-      const pagePath = page.finalPath ?? page.path;
-      if (!pagePath.endsWith(".html")) return;
+      // `page.path` is the staging file, which `outputDir` (captured from
+      // `beforeBuild`'s already-staged `config.output`) is relative to.
+      // `page.finalPath` is the eventual *published* path and lives under a
+      // different root entirely - computing `relative(outputDir, finalPath)`
+      // would produce a garbage route like "/../dist/docs/foo/".
+      if (!page.path.endsWith(".html")) return;
 
-      const relPath = relative(outputDir, pagePath);
+      const relPath = relative(outputDir, page.path);
       const route = routeFromPath(relPath);
 
       if (exclude.some((prefix) => route.startsWith(prefix))) return;

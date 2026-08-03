@@ -190,6 +190,40 @@ Deno.test({
 });
 
 Deno.test({
+  name:
+    "search: derives route from the staging path, not finalPath, when they diverge",
+  fn: async () => {
+    // During a real build, beforeBuild's config.output is the staging
+    // directory; page.finalPath is the eventual *published* path under a
+    // different root entirely. Routes must be computed relative to the
+    // staging root (page.path), matching what beforeBuild captured.
+    const plugin = searchPlugin();
+    const mockConfig = { output: ".steno-staging-abc" } as Parameters<
+      NonNullable<typeof plugin.beforeBuild>
+    >[0];
+
+    plugin.beforeBuild!(mockConfig);
+    plugin.afterPage!({
+      path: ".steno-staging-abc/docs/foo/index.html",
+      finalPath: "dist/docs/foo/index.html",
+      html: "<title>Foo</title>",
+    });
+
+    const { writtenFiles, restore } = mockWriteTextFile();
+    try {
+      await plugin.afterBuild!(mockConfig);
+    } finally {
+      restore();
+    }
+
+    const index = JSON.parse(
+      writtenFiles[".steno-staging-abc/search-index.json"],
+    );
+    assertEquals(index[0].route, "/docs/foo/");
+  },
+});
+
+Deno.test({
   name: "search: ignores non-html pages",
   fn: async () => {
     const plugin = searchPlugin();
