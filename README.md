@@ -1,6 +1,6 @@
 # @steno/plugin-search
 
-Search plugin for [Steno](https://github.com/steno/steno) that generates a
+Search plugin for [Steno](https://github.com/stenopress/steno) that generates a
 client-side search index by scanning the final rendered HTML of every page
 in your build.
 
