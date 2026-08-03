@@ -1,0 +1,125 @@
+/**
+ * Steno plugin for generating a client-side search index from rendered HTML.
+ */
+import type { GeneratedPage, SiteConfig, StenoPlugin } from "steno";
+import { basename, dirname, join, relative } from "@std/path";
+
+/** Options for the generated search index. */
+export interface SearchPluginOptions {
+  /** Output-relative path for the generated index. Default "search-index.json". */
+  indexPath?: string;
+  /** Max excerpt length in characters. Default 180. */
+  excerptLength?: number;
+  /**
+   * Route prefixes to exclude from the index (exact string prefix match
+   * against the derived route, e.g. "/404").
+   */
+  exclude?: string[];
+}
+
+/** A single entry in the generated search index. */
+export interface SearchIndexEntry {
+  /** Page title, extracted from the rendered `<title>` tag. */
+  title: string;
+  /** Public route for the page. */
+  route: string;
+  /** Truncated, tag-stripped excerpt of the page body. */
+  excerpt: string;
+  /** Text content of every `<h2>`/`<h3>` heading on the page, in document order. */
+  headings: string[];
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]+>/g, " ");
+}
+
+function extractTitle(html: string): string {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!match) return "";
+  return stripTags(match[1]).replace(/\s+/g, " ").trim();
+}
+
+function extractHeadings(html: string): string[] {
+  const headings: string[] = [];
+  const regex = /<(h2|h3)[^>]*>([\s\S]*?)<\/\1>/gi;
+  for (const match of html.matchAll(regex)) {
+    const text = stripTags(match[2]).replace(/\s+/g, " ").trim();
+    if (text) headings.push(text);
+  }
+  return headings;
+}
+
+function extractExcerpt(html: string, excerptLength: number): string {
+  const withoutScriptsAndStyles = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ");
+  const plain = stripTags(withoutScriptsAndStyles)
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain.slice(0, excerptLength);
+}
+
+/**
+ * Derives a public route from a page's output-relative path.
+ *
+ * `index.html` -> `/`; `foo/index.html` -> `/foo/`; `foo.html` -> `/foo`
+ * (no trailing slash, matching `shortUrls: false` output).
+ */
+function routeFromPath(relPath: string): string {
+  const normalized = relPath.replaceAll("\\", "/");
+  const dir = dirname(normalized);
+  const base = basename(normalized);
+  const dirPrefix = dir === "." || dir === "" ? "" : `/${dir}`;
+
+  if (base === "index.html") {
+    return dirPrefix === "" ? "/" : `${dirPrefix}/`;
+  }
+
+  const name = base.replace(/\.html$/, "");
+  return `${dirPrefix}/${name}`;
+}
+
+/** Creates a Steno plugin that generates a client-side search index. */
+export default function searchPlugin(
+  options: SearchPluginOptions = {},
+): StenoPlugin {
+  const indexPath = options.indexPath ?? "search-index.json";
+  const excerptLength = options.excerptLength ?? 180;
+  const exclude = options.exclude ?? [];
+
+  let outputDir = "dist";
+  const entries: SearchIndexEntry[] = [];
+
+  return {
+    name: "steno-plugin-search",
+
+    beforeBuild(config: SiteConfig): void {
+      outputDir = config.output ?? "dist";
+    },
+
+    afterPage(page: GeneratedPage): void {
+      const pagePath = page.finalPath ?? page.path;
+      if (!pagePath.endsWith(".html")) return;
+
+      const relPath = relative(outputDir, pagePath);
+      const route = routeFromPath(relPath);
+
+      if (exclude.some((prefix) => route.startsWith(prefix))) return;
+
+      entries.push({
+        title: extractTitle(page.html),
+        route,
+        excerpt: extractExcerpt(page.html, excerptLength),
+        headings: extractHeadings(page.html),
+      });
+    },
+
+    async afterBuild(config: SiteConfig): Promise<void> {
+      const dir = config.output ?? outputDir;
+      const sorted = [...entries].sort((a, b) =>
+        a.title.localeCompare(b.title)
+      );
+      await Deno.writeTextFile(join(dir, indexPath), JSON.stringify(sorted));
+    },
+  };
+}
