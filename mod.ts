@@ -15,6 +15,20 @@ export interface SearchPluginOptions {
    * against the derived route, e.g. "/404").
    */
   exclude?: string[];
+  /**
+   * Route prefixes to include in the index (exact string prefix match
+   * against the derived route, e.g. "/docs/"). When set, only routes
+   * matching one of these prefixes are indexed; `exclude` is still applied
+   * on top of this.
+   */
+  include?: string[];
+  /**
+   * CSS-tag-like selector for the element whose contents are indexed
+   * (excerpt + headings). Only bare tag names are supported (e.g. "main",
+   * "article"). Default "main". Falls back to the full document if no
+   * matching tag is found on a page.
+   */
+  contentSelector?: string;
 }
 
 /** A single entry in the generated search index. */
@@ -47,6 +61,17 @@ function extractHeadings(html: string): string[] {
     if (text) headings.push(text);
   }
   return headings;
+}
+
+/**
+ * Narrows `html` down to the contents of the first element matching the
+ * given bare tag name (e.g. "main"). Returns the full `html` unchanged if
+ * no matching tag is found.
+ */
+function extractContentRegion(html: string, tag: string): string {
+  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const match = html.match(regex);
+  return match ? match[1] : html;
 }
 
 function extractExcerpt(html: string, excerptLength: number): string {
@@ -86,6 +111,8 @@ export default function searchPlugin(
   const indexPath = options.indexPath ?? "search-index.json";
   const excerptLength = options.excerptLength ?? 180;
   const exclude = options.exclude ?? [];
+  const include = options.include ?? [];
+  const contentSelector = options.contentSelector ?? "main";
 
   let outputDir = "dist";
   const entries: SearchIndexEntry[] = [];
@@ -108,13 +135,21 @@ export default function searchPlugin(
       const relPath = relative(outputDir, page.path);
       const route = routeFromPath(relPath);
 
+      if (
+        include.length > 0 &&
+        !include.some((prefix) => route.startsWith(prefix))
+      ) {
+        return;
+      }
       if (exclude.some((prefix) => route.startsWith(prefix))) return;
+
+      const region = extractContentRegion(page.html, contentSelector);
 
       entries.push({
         title: extractTitle(page.html),
         route,
-        excerpt: extractExcerpt(page.html, excerptLength),
-        headings: extractHeadings(page.html),
+        excerpt: extractExcerpt(region, excerptLength),
+        headings: extractHeadings(region),
       });
     },
 
