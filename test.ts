@@ -224,6 +224,135 @@ Deno.test({
 });
 
 Deno.test({
+  name: "search: only indexes pages matching an include prefix",
+  fn: async () => {
+    const plugin = searchPlugin({ include: ["/docs/"] });
+    const mockConfig = { output: "dist" } as Parameters<
+      NonNullable<typeof plugin.beforeBuild>
+    >[0];
+
+    plugin.beforeBuild!(mockConfig);
+    plugin.afterPage!({
+      path: "dist/docs/foo/index.html",
+      finalPath: "dist/docs/foo/index.html",
+      html: "<title>Docs Foo</title>",
+    });
+    plugin.afterPage!({
+      path: "dist/blog/post.html",
+      finalPath: "dist/blog/post.html",
+      html: "<title>Blog Post</title>",
+    });
+
+    const { writtenFiles, restore } = mockWriteTextFile();
+    try {
+      await plugin.afterBuild!(mockConfig);
+    } finally {
+      restore();
+    }
+
+    const index = JSON.parse(writtenFiles["dist/search-index.json"]);
+    assertEquals(index.length, 1);
+    assertEquals(index[0].title, "Docs Foo");
+  },
+});
+
+Deno.test({
+  name: "search: exclude prefix is applied on top of include",
+  fn: async () => {
+    const plugin = searchPlugin({
+      include: ["/docs/"],
+      exclude: ["/docs/drafts"],
+    });
+    const mockConfig = { output: "dist" } as Parameters<
+      NonNullable<typeof plugin.beforeBuild>
+    >[0];
+
+    plugin.beforeBuild!(mockConfig);
+    plugin.afterPage!({
+      path: "dist/docs/drafts/secret.html",
+      finalPath: "dist/docs/drafts/secret.html",
+      html: "<title>Secret</title>",
+    });
+    plugin.afterPage!({
+      path: "dist/docs/foo.html",
+      finalPath: "dist/docs/foo.html",
+      html: "<title>Foo</title>",
+    });
+
+    const { writtenFiles, restore } = mockWriteTextFile();
+    try {
+      await plugin.afterBuild!(mockConfig);
+    } finally {
+      restore();
+    }
+
+    const index = JSON.parse(writtenFiles["dist/search-index.json"]);
+    assertEquals(index.length, 1);
+    assertEquals(index[0].title, "Foo");
+  },
+});
+
+Deno.test({
+  name: "search: scopes excerpt and headings to the contentSelector tag",
+  fn: async () => {
+    const plugin = searchPlugin();
+    const mockConfig = { output: "dist" } as Parameters<
+      NonNullable<typeof plugin.beforeBuild>
+    >[0];
+
+    plugin.beforeBuild!(mockConfig);
+    plugin.afterPage!({
+      path: "dist/index.html",
+      finalPath: "dist/index.html",
+      html: "<title>Page</title><body>" +
+        "<nav><h2>Nav Heading</h2>Nav junk text</nav>" +
+        "<main><h2>Real Heading</h2><p>Real body text.</p></main>" +
+        "</body>",
+    });
+
+    const { writtenFiles, restore } = mockWriteTextFile();
+    try {
+      await plugin.afterBuild!(mockConfig);
+    } finally {
+      restore();
+    }
+
+    const index = JSON.parse(writtenFiles["dist/search-index.json"]);
+    assertEquals(index[0].headings, ["Real Heading"]);
+    assert(!index[0].excerpt.includes("Nav junk text"));
+    assert(index[0].excerpt.includes("Real body text."));
+  },
+});
+
+Deno.test({
+  name: "search: falls back to full page when contentSelector tag is missing",
+  fn: async () => {
+    const plugin = searchPlugin();
+    const mockConfig = { output: "dist" } as Parameters<
+      NonNullable<typeof plugin.beforeBuild>
+    >[0];
+
+    plugin.beforeBuild!(mockConfig);
+    plugin.afterPage!({
+      path: "dist/index.html",
+      finalPath: "dist/index.html",
+      html: "<title>Page</title><body><h2>Only Heading</h2>Body text.</body>",
+    });
+
+    const { writtenFiles, restore } = mockWriteTextFile();
+    try {
+      await plugin.afterBuild!(mockConfig);
+    } finally {
+      restore();
+    }
+
+    const index = JSON.parse(writtenFiles["dist/search-index.json"]);
+    assertEquals(index[0].headings, ["Only Heading"]);
+    assert(index[0].excerpt.includes("Body text."));
+  },
+});
+
+Deno.test({
   name: "search: ignores non-html pages",
   fn: async () => {
     const plugin = searchPlugin();
