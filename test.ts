@@ -353,6 +353,82 @@ Deno.test({
 });
 
 Deno.test({
+  name: "search: writes the index to a custom indexPath",
+  fn: async () => {
+    const plugin = searchPlugin({ indexPath: "assets/idx.json" });
+    const mockConfig = { output: "dist" } as Parameters<
+      NonNullable<typeof plugin.beforeBuild>
+    >[0];
+
+    plugin.beforeBuild!(mockConfig);
+    plugin.afterPage!({
+      path: "dist/index.html",
+      finalPath: "dist/index.html",
+      html: "<title>Home</title>",
+    });
+
+    const { writtenFiles, restore } = mockWriteTextFile();
+    try {
+      await plugin.afterBuild!(mockConfig);
+    } finally {
+      restore();
+    }
+
+    assert("dist/assets/idx.json" in writtenFiles);
+    assert(!("dist/search-index.json" in writtenFiles));
+  },
+});
+
+Deno.test({
+  name: "search: defaults to an empty title when no <title> tag is present",
+  fn: async () => {
+    const plugin = searchPlugin();
+    const mockConfig = { output: "dist" } as Parameters<
+      NonNullable<typeof plugin.beforeBuild>
+    >[0];
+
+    plugin.beforeBuild!(mockConfig);
+    plugin.afterPage!({
+      path: "dist/index.html",
+      finalPath: "dist/index.html",
+      html: "<body><p>No title here.</p></body>",
+    });
+
+    const { writtenFiles, restore } = mockWriteTextFile();
+    try {
+      await plugin.afterBuild!(mockConfig);
+    } finally {
+      restore();
+    }
+
+    const index = JSON.parse(writtenFiles["dist/search-index.json"]);
+    assertEquals(index[0].title, "");
+  },
+});
+
+Deno.test({
+  name: "search: writes an empty array when no pages are indexed",
+  fn: async () => {
+    const plugin = searchPlugin();
+    const mockConfig = { output: "dist" } as Parameters<
+      NonNullable<typeof plugin.beforeBuild>
+    >[0];
+
+    plugin.beforeBuild!(mockConfig);
+
+    const { writtenFiles, restore } = mockWriteTextFile();
+    try {
+      await plugin.afterBuild!(mockConfig);
+    } finally {
+      restore();
+    }
+
+    const index = JSON.parse(writtenFiles["dist/search-index.json"]);
+    assertEquals(index, []);
+  },
+});
+
+Deno.test({
   name: "search: ignores non-html pages",
   fn: async () => {
     const plugin = searchPlugin();
